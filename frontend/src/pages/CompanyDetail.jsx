@@ -9,13 +9,25 @@ import {
 
 const CATEGORIES = ["대기업", "공기업", "중견기업", "스타트업", "기타"];
 
+function useElapsedTimer(running) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!running) { setElapsed(0); return; }
+    setElapsed(0);
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  return elapsed;
+}
+
 export default function CompanyDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [company, setCompany] = useState(null);
-  const [jobs, setJobs] = useState([]);
-  const [news, setNews] = useState([]);
-  const [coverLetters, setCoverLetters] = useState([]);
+  const [loadError, setLoadError] = useState(null);
+  const [jobs, setJobs] = useState(null);       // null = 미로드
+  const [news, setNews] = useState(null);
+  const [coverLetters, setCoverLetters] = useState(null);
   const [activeTab, setActiveTab] = useState("info");
   const [analyzing, setAnalyzing] = useState(false);
   const [recommending, setRecommending] = useState(false);
@@ -23,31 +35,43 @@ export default function CompanyDetail() {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [expandedCL, setExpandedCL] = useState({});
-  const [editingCL, setEditingCL] = useState(null); // {id, answer}
+  const [editingCL, setEditingCL] = useState(null);
+  const [loadingTab, setLoadingTab] = useState(null); // 현재 로딩 중인 탭
+  const elapsed = useElapsedTimer(!!loadingTab || company === null);
 
-  const load = async () => {
-    const [cRes, jRes, clRes] = await Promise.all([
-      companiesApi.get(id),
-      companiesApi.jobs(id),
-      companiesApi.coverLetters(id),
-    ]);
-    setCompany(cRes.data);
-    setEditForm(cRes.data);
-    setJobs(jRes.data);
-    setCoverLetters(clRes.data);
-  };
-
-  useEffect(() => { load(); }, [id]);
-
-  const loadNews = () => {
-    if (news.length === 0) {
-      companiesApi.news(id).then((r) => setNews(r.data)).catch(() => {});
+  // 기업 기본 정보만 먼저 로드 (빠름)
+  const loadCompany = async () => {
+    setLoadError(null);
+    try {
+      const r = await companiesApi.get(id);
+      setCompany(r.data);
+      setEditForm(r.data);
+    } catch (e) {
+      setLoadError(e.response?.status === 404 ? "기업을 찾을 수 없습니다." : "서버 연결 오류 — 백엔드가 실행 중인지 확인하세요.");
     }
   };
 
-  useEffect(() => {
-    if (activeTab === "news") loadNews();
-  }, [activeTab]);
+  // 탭별 lazy 로드
+  const loadTab = async (tab) => {
+    if (tab === "jobs" && jobs === null) {
+      setLoadingTab("jobs");
+      try { setJobs((await companiesApi.jobs(id)).data); } catch { setJobs([]); }
+      setLoadingTab(null);
+    }
+    if (tab === "coverletter" && coverLetters === null) {
+      setLoadingTab("coverletter");
+      try { setCoverLetters((await companiesApi.coverLetters(id)).data); } catch { setCoverLetters([]); }
+      setLoadingTab(null);
+    }
+    if (tab === "news" && news === null) {
+      setLoadingTab("news");
+      try { setNews((await companiesApi.news(id)).data); } catch { setNews([]); }
+      setLoadingTab(null);
+    }
+  };
+
+  useEffect(() => { loadCompany(); }, [id]);
+  useEffect(() => { if (company) loadTab(activeTab); }, [activeTab, company]);
 
   const analyzeCompany = async () => {
     setAnalyzing(true);
@@ -92,12 +116,32 @@ export default function CompanyDetail() {
     setEditingCL(null);
   };
 
-  if (!company) return <div style={{ padding: 40, color: "#64748b" }}>불러오는 중...</div>;
+  // 에러 상태
+  if (loadError) return (
+    <div style={{ padding: 40, textAlign: "center" }}>
+      <div style={{ fontSize: 15, color: "#ef4444", fontWeight: 600, marginBottom: 12 }}>⚠️ {loadError}</div>
+      <button onClick={loadCompany} style={{ padding: "8px 18px", borderRadius: 8, background: "#4f46e5", color: "white", border: "none", cursor: "pointer", fontSize: 13 }}>
+        다시 시도
+      </button>
+    </div>
+  );
+
+  // 기업 정보 최초 로딩 중
+  if (!company) return (
+    <div style={{ padding: "60px 40px", maxWidth: 480, margin: "0 auto" }}>
+      <ProgressBar elapsed={elapsed} label="기업 정보 불러오는 중..." maxSec={8} />
+      {elapsed >= 5 && (
+        <div style={{ fontSize: 12, color: "#f97316", marginTop: 12, textAlign: "center" }}>
+          응답이 느립니다. 백엔드 서버가 실행 중인지 확인해주세요.
+        </div>
+      )}
+    </div>
+  );
 
   const tabs = [
     { key: "info", label: "기업 정보", icon: "🏢" },
-    { key: "jobs", label: `공고 (${jobs.length})`, icon: "📋" },
-    { key: "coverletter", label: `자기소개서 (${coverLetters.length})`, icon: "✍️" },
+    { key: "jobs", label: jobs ? `공고 (${jobs.length})` : "공고", icon: "📋" },
+    { key: "coverletter", label: coverLetters ? `자기소개서 (${coverLetters.length})` : "자기소개서", icon: "✍️" },
     { key: "news", label: "뉴스", icon: "📰" },
   ];
 
@@ -186,7 +230,7 @@ export default function CompanyDetail() {
         {tabs.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => { setActiveTab(tab.key); loadTab(tab.key); }}
             style={{
               padding: "10px 18px", border: "none", background: "none", cursor: "pointer",
               fontSize: 14, fontWeight: activeTab === tab.key ? 700 : 500,
@@ -231,6 +275,7 @@ export default function CompanyDetail() {
       {/* 공고 탭 */}
       {activeTab === "jobs" && (
         <div>
+          {loadingTab === "jobs" && <TabLoader elapsed={elapsed} label="공고 목록" />}
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
             <button
               onClick={getRecommendation}
@@ -251,8 +296,8 @@ export default function CompanyDetail() {
             </div>
           )}
 
-          {jobs.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontSize: 14 }}>등록된 공고가 없습니다.</div>
+          {!jobs || jobs.length === 0 ? (
+            !loadingTab && <div style={{ textAlign: "center", padding: 40, color: "#94a3b8", fontSize: 14 }}>등록된 공고가 없습니다.</div>
           ) : (
             jobs.map((job) => {
               const days = job.deadline ? Math.ceil((new Date(job.deadline) - new Date()) / 86400000) : null;
@@ -302,10 +347,11 @@ export default function CompanyDetail() {
       {/* 자기소개서 탭 */}
       {activeTab === "coverletter" && (
         <div>
+          {loadingTab === "coverletter" && <TabLoader elapsed={elapsed} label="자기소개서 목록" />}
           <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
             이 기업 공고에 작성한 자기소개서 목록입니다. AI 초안 생성 시 이 내용이 자동으로 참고됩니다.
           </p>
-          {coverLetters.length === 0 ? (
+          {!coverLetters || coverLetters.length === 0 ? (
             <div style={{ textAlign: "center", padding: 40, color: "#94a3b8" }}>
               <PenTool size={32} style={{ marginBottom: 10, opacity: 0.3 }} />
               <p>작성된 자기소개서가 없습니다.</p>
@@ -374,10 +420,11 @@ export default function CompanyDetail() {
       {/* 뉴스 탭 */}
       {activeTab === "news" && (
         <div>
-          {news.length === 0 ? (
+          {loadingTab === "news" && <TabLoader elapsed={elapsed} label="뉴스 검색 중 (외부 API 연결)" />}
+          {!loadingTab && (!news || news.length === 0) ? (
             <div style={{ background: "white", borderRadius: 12, padding: 40, textAlign: "center", color: "#94a3b8", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
               <Newspaper size={36} style={{ marginBottom: 12, opacity: 0.4 }} />
-              <p>뉴스를 불러오는 중입니다...</p>
+              <p>뉴스가 없습니다.</p>
             </div>
           ) : (
             news.map((item, i) => (
@@ -409,6 +456,45 @@ export default function CompanyDetail() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProgressBar({ elapsed, label, maxSec = 10 }) {
+  // elapsed가 maxSec에 도달하면 95%에서 멈춤 (실제 완료 전까지 100% 안 됨)
+  const pct = Math.min(95, Math.round((elapsed / maxSec) * 100));
+  const hint = elapsed >= 15
+    ? "응답이 없으면 탭을 다시 클릭해보세요"
+    : elapsed >= 5
+    ? "외부 API 호출이 포함된 경우 시간이 걸릴 수 있습니다"
+    : "";
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>{label}</span>
+        <span style={{ fontSize: 12, color: "#94a3b8" }}>{elapsed}초 경과 · {pct}%</span>
+      </div>
+      <div style={{ height: 8, borderRadius: 99, background: "#e2e8f0", overflow: "hidden" }}>
+        <div style={{
+          height: "100%",
+          width: `${pct}%`,
+          borderRadius: 99,
+          background: "linear-gradient(90deg, #818cf8, #6366f1)",
+          transition: "width 0.9s ease",
+        }} />
+      </div>
+      {hint && (
+        <div style={{ fontSize: 11, color: "#f97316", marginTop: 6 }}>{hint}</div>
+      )}
+    </div>
+  );
+}
+
+function TabLoader({ elapsed, label }) {
+  return (
+    <div style={{ background: "#f8fafc", borderRadius: 10, padding: "16px 18px", marginBottom: 16, border: "1px solid #e2e8f0" }}>
+      <ProgressBar elapsed={elapsed} label={`${label} 불러오는 중...`} maxSec={label.includes("뉴스") ? 20 : 8} />
     </div>
   );
 }
