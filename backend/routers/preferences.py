@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
 from database import get_db
-from models import CrawlPreferences, Job, PublicCareerSite
+from models import CrawlPreferences, Job, Company, PublicCareerSite
 
 router = APIRouter(prefix="/api/preferences", tags=["preferences"])
 
@@ -59,7 +60,70 @@ async def save_preferences(data: PreferencesData, db: AsyncSession = Depends(get
     for k, v in data.model_dump(exclude_none=True).items():
         setattr(pref, k, v)
     await db.commit()
-    return {"ok": True}
+    # 설정 저장 즉시 기존 공고 필터 적용
+    deleted = await _apply_filter(db, pref)
+    return {"ok": True, "deleted": deleted}
+
+
+@router.post("/apply-filter")
+async def apply_filter(db: AsyncSession = Depends(get_db)):
+    """현재 설정 기준으로 맞지 않는 크롤링 공고 삭제"""
+    result = await db.execute(select(CrawlPreferences).limit(1))
+    pref = result.scalar_one_or_none()
+    deleted = await _apply_filter(db, pref)
+    return {"deleted": deleted}
+
+
+async def _apply_filter(db: AsyncSession, pref: CrawlPreferences) -> int:
+    """
+    is_scraped=True인 공고만 대상으로 선호도 필터 적용.
+    수동 추가 공고(is_scraped=False)는 건드리지 않음.
+    """
+    if not pref:
+        return 0
+
+    allowed_job_types = pref.job_types or []
+    allowed_company_sizes = pref.company_sizes or []
+    allowed_keywords = pref.keywords or []
+
+    # 필터가 하나도 설정 안 된 경우 삭제하지 않음
+    if not allowed_job_types and not allowed_company_sizes and not allowed_keywords:
+        return 0
+
+    jobs_res = await db.execute(
+        select(Job).options(selectinload(Job.company)).where(Job.is_scraped == True)
+    )
+    jobs = jobs_res.scalars().all()
+
+    deleted = 0
+    for job in jobs:
+        remove = False
+
+        # 직무 유형 필터
+        if allowed_job_types:
+            job_type = job.job_type or ""
+            if not any(t in job_type for t in allowed_job_types):
+                remove = True
+
+        # 기업 규모 필터
+        if not remove and allowed_company_sizes:
+            category = job.company.category if job.company else ""
+            if category not in allowed_company_sizes:
+                remove = True
+
+        # 키워드 필터 (설정된 경우 하나라도 포함돼야 통과)
+        if not remove and allowed_keywords:
+            text = (job.title or "") + " " + (job.description or "")
+            if not any(kw.lower() in text.lower() for kw in allowed_keywords):
+                remove = True
+
+        if remove:
+            await db.delete(job)
+            deleted += 1
+
+    if deleted:
+        await db.commit()
+    return deleted
 
 
 @router.put("/jobs/{job_id}/status")

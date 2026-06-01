@@ -40,6 +40,7 @@ export const crawlApi = {
 export const preferencesApi = {
   get: () => api.get("/api/preferences/"),
   save: (data) => api.post("/api/preferences/", data),
+  applyFilter: () => api.post("/api/preferences/apply-filter"),
   updateJobStatus: (id, data) => api.put(`/api/preferences/jobs/${id}/status`, data),
   getCareerSites: () => api.get("/api/preferences/career-sites"),
   addCareerSite: (name, url, selector) =>

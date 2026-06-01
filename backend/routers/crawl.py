@@ -91,7 +91,7 @@ async def _do_crawl(source: str, db: AsyncSession):
             crawl_status["progress"]["count"] = len(new)
             jobs_data += new
 
-        crawl_status["progress"] = {"source": "", "step": "DB 저장 중...", "count": len(jobs_data)}
+        crawl_status["progress"] = {"source": "", "step": "필터 적용 중...", "count": len(jobs_data)}
 
         for item in jobs_data:
             company_name = item.get("company_name", "").strip()
@@ -148,7 +148,12 @@ async def _do_crawl(source: str, db: AsyncSession):
             added += 1
 
         await db.commit()
-        result = {"added": added, "skipped": skipped, "total": len(jobs_data)}
+
+        # 크롤링 후 설정 필터 자동 적용
+        from routers.preferences import _apply_filter
+        deleted = await _apply_filter(db, pref)
+
+        result = {"added": added, "skipped": skipped, "total": len(jobs_data), "filtered": deleted}
 
     except Exception as e:
         result = {"error": str(e), "added": added}

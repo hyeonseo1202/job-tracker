@@ -49,7 +49,7 @@ export default function Applications() {
 
   // D-day 기준 그룹
   const groups = [
-    { label: "마감 임박 (7일 이내)", items: filtered.filter((j) => { const d = daysUntil(j.deadline); return d !== null && d <= 7 && d >= 0; }) },
+    { label: "마감 임박 (7일 이내)", items: filtered.filter((j) => { const d = daysUntil(j.deadline); return d !== null && d <= 7 && d > 0; }) },
     { label: "2주 이내", items: filtered.filter((j) => { const d = daysUntil(j.deadline); return d !== null && d > 7 && d <= 14; }) },
     { label: "한 달 이내", items: filtered.filter((j) => { const d = daysUntil(j.deadline); return d !== null && d > 14 && d <= 30; }) },
     { label: "한 달 이후", items: filtered.filter((j) => { const d = daysUntil(j.deadline); return d !== null && d > 30; }) },

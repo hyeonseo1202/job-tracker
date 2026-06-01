@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { preferencesApi } from "../api";
-import { Save, Plus, Trash2 } from "lucide-react";
+import { Save, Plus, Trash2, Filter } from "lucide-react";
 
 const JOB_TYPE_OPTIONS = ["신입", "인턴", "채용연계형 인턴", "경력", "주니어"];
 const LOCATION_OPTIONS = ["서울", "경기", "인천", "부산", "대전", "광주", "대구", "세종", "해외", "기타"];
@@ -19,6 +19,7 @@ export default function Preferences() {
   const [sites, setSites] = useState([]);
   const [newSite, setNewSite] = useState({ name: "", url: "", selector: "" });
   const [saved, setSaved] = useState(false);
+  const [filterMsg, setFilterMsg] = useState("");
 
   useEffect(() => {
     preferencesApi.get().then((r) => setPrefs(r.data));
@@ -46,9 +47,18 @@ export default function Preferences() {
     setPrefs((p) => ({ ...p, keywords: p.keywords.filter((k) => k !== kw) }));
 
   const savePrefs = async () => {
-    await preferencesApi.save(prefs);
+    const r = await preferencesApi.save(prefs);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    const deleted = r.data?.deleted ?? 0;
+    if (deleted > 0) setFilterMsg(`설정 기준에 맞지 않는 공고 ${deleted}개가 캘린더에서 삭제됐습니다.`);
+    setTimeout(() => { setSaved(false); setFilterMsg(""); }, 4000);
+  };
+
+  const applyFilterNow = async () => {
+    const r = await preferencesApi.applyFilter();
+    const deleted = r.data?.deleted ?? 0;
+    setFilterMsg(deleted > 0 ? `공고 ${deleted}개가 삭제됐습니다.` : "삭제할 공고가 없습니다.");
+    setTimeout(() => setFilterMsg(""), 4000);
   };
 
   const addSite = async () => {
@@ -92,19 +102,39 @@ export default function Preferences() {
           <h2 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a" }}>크롤링 설정</h2>
           <p style={{ color: "#64748b", fontSize: 14, marginTop: 4 }}>공고 필터 조건을 설정하세요 (매일 오전 8시 자동 크롤링)</p>
         </div>
-        <button
-          onClick={savePrefs}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "8px 16px", borderRadius: 8,
-            background: saved ? "#16a34a" : "#1e293b",
-            color: "white", border: "none", cursor: "pointer",
-            fontSize: 13, fontWeight: 600,
-          }}
-        >
-          <Save size={14} />
-          {saved ? "저장됨!" : "저장"}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={applyFilterNow}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 16px", borderRadius: 8,
+                background: "white", color: "#ef4444",
+                border: "1px solid #fecaca", cursor: "pointer",
+                fontSize: 13, fontWeight: 600,
+              }}
+            >
+              <Filter size={14} />
+              지금 필터 적용
+            </button>
+            <button
+              onClick={savePrefs}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "8px 16px", borderRadius: 8,
+                background: saved ? "#16a34a" : "#1e293b",
+                color: "white", border: "none", cursor: "pointer",
+                fontSize: 13, fontWeight: 600,
+              }}
+            >
+              <Save size={14} />
+              {saved ? "저장됨!" : "저장"}
+            </button>
+          </div>
+          {filterMsg && (
+            <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>{filterMsg}</span>
+          )}
+        </div>
       </div>
 
       <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.08)", marginBottom: 20 }}>
