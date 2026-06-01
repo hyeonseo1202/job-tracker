@@ -125,7 +125,7 @@ export default function CalendarView() {
             }}
           >
             <RefreshCw size={13} style={{ animation: crawling ? "spin 1s linear infinite" : "none" }} />
-            {crawling ? "크롤링 중..." : "전체 크롤링"}
+            {crawling ? "불러오는 중..." : "공고 불러오기"}
           </button>
         </div>
       </div>

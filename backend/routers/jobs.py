@@ -61,6 +61,7 @@ async def calendar_jobs(db: AsyncSession = Depends(get_db)):
                 "company": j.company.name if j.company else "",
                 "job_type": j.job_type,
                 "color": _category_color(j.company.category if j.company else ""),
+                "textColor": "#1e293b",
             })
     return events
 

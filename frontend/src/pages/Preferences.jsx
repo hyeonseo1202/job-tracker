@@ -6,6 +6,8 @@ const JOB_TYPE_OPTIONS = ["신입", "인턴", "채용연계형 인턴", "경력"
 const LOCATION_OPTIONS = ["서울", "경기", "인천", "부산", "대전", "광주", "대구", "세종", "해외", "기타"];
 const COMPANY_SIZE_OPTIONS = ["대기업", "공기업", "중견기업", "스타트업"];
 
+const IT_CATEGORY_KEY = "IT직군";
+
 export default function Preferences() {
   const [prefs, setPrefs] = useState({
     job_types: ["신입", "인턴", "채용연계형 인턴"],
@@ -138,6 +140,42 @@ export default function Preferences() {
       </div>
 
       <div style={{ background: "white", borderRadius: 12, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.08)", marginBottom: 20 }}>
+        {/* IT 직군 전용 필터 */}
+        <div style={{ marginBottom: 20, padding: "14px 16px", borderRadius: 10, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>IT 직군 전용</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
+                개발·데이터·AI·보안 등 IT 관련 키워드가 없는 공고를 자동 삭제합니다
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                const isOn = (prefs.categories || []).includes(IT_CATEGORY_KEY);
+                setPrefs((p) => ({
+                  ...p,
+                  categories: isOn
+                    ? (p.categories || []).filter((c) => c !== IT_CATEGORY_KEY)
+                    : [...(p.categories || []), IT_CATEGORY_KEY],
+                }));
+              }}
+              style={{
+                width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
+                background: (prefs.categories || []).includes(IT_CATEGORY_KEY) ? "#6366f1" : "#e2e8f0",
+                position: "relative", transition: "background 0.2s", flexShrink: 0,
+              }}
+            >
+              <span style={{
+                position: "absolute", top: 2,
+                left: (prefs.categories || []).includes(IT_CATEGORY_KEY) ? 22 : 2,
+                width: 20, height: 20, borderRadius: "50%",
+                background: "white", transition: "left 0.2s",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+              }} />
+            </button>
+          </div>
+        </div>
+
         <CheckGroup label="채용 유형" field="job_types" options={JOB_TYPE_OPTIONS} />
         <CheckGroup label="지역" field="locations" options={LOCATION_OPTIONS} />
         <CheckGroup label="기업 규모" field="company_sizes" options={COMPANY_SIZE_OPTIONS} />

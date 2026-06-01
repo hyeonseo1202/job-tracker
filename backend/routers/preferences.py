@@ -74,6 +74,16 @@ async def apply_filter(db: AsyncSession = Depends(get_db)):
     return {"deleted": deleted}
 
 
+# IT 직군 관련 키워드 프리셋
+IT_KEYWORDS = [
+    "개발", "engineer", "developer", "sw", "it", "software", "data",
+    "백엔드", "프론트엔드", "풀스택", "devops", "cloud", "ai", "ml",
+    "python", "java", "react", "node", "ios", "android", "인공지능",
+    "머신러닝", "딥러닝", "빅데이터", "보안", "네트워크", "시스템",
+    "qa", "테스트", "ux", "ui", "디지털", "정보", "전산", "db",
+]
+
+
 async def _apply_filter(db: AsyncSession, pref: CrawlPreferences) -> int:
     """
     is_scraped=True인 공고만 대상으로 선호도 필터 적용.
@@ -85,10 +95,14 @@ async def _apply_filter(db: AsyncSession, pref: CrawlPreferences) -> int:
     allowed_job_types = pref.job_types or []
     allowed_company_sizes = pref.company_sizes or []
     allowed_keywords = pref.keywords or []
+    allowed_categories = pref.categories or []  # ["IT직군"] 등
 
     # 필터가 하나도 설정 안 된 경우 삭제하지 않음
-    if not allowed_job_types and not allowed_company_sizes and not allowed_keywords:
+    if not allowed_job_types and not allowed_company_sizes and not allowed_keywords and not allowed_categories:
         return 0
+
+    # IT 직군 필터 활성화 여부
+    it_only = "IT직군" in allowed_categories
 
     jobs_res = await db.execute(
         select(Job).options(selectinload(Job.company)).where(Job.is_scraped == True)
@@ -111,7 +125,13 @@ async def _apply_filter(db: AsyncSession, pref: CrawlPreferences) -> int:
             if category not in allowed_company_sizes:
                 remove = True
 
-        # 키워드 필터 (설정된 경우 하나라도 포함돼야 통과)
+        # IT 직군 전용 필터 (제목에 IT 관련 키워드가 하나도 없으면 제거)
+        if not remove and it_only:
+            title_lower = (job.title or "").lower()
+            if not any(kw in title_lower for kw in IT_KEYWORDS):
+                remove = True
+
+        # 사용자 정의 키워드 필터 (설정된 경우 하나라도 포함돼야 통과)
         if not remove and allowed_keywords:
             text = (job.title or "") + " " + (job.description or "")
             if not any(kw.lower() in text.lower() for kw in allowed_keywords):
