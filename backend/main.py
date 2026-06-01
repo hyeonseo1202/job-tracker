@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from database import init_db
-from routers import jobs, companies, user, ai
+from routers import jobs, companies, user, ai, crawl
 
 
 @asynccontextmanager
@@ -29,6 +29,7 @@ app.include_router(jobs.router)
 app.include_router(companies.router)
 app.include_router(user.router)
 app.include_router(ai.router)
+app.include_router(crawl.router)
 
 
 @app.get("/")

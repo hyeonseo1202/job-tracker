@@ -25,6 +25,13 @@ export const userApi = {
   saveProfile: (data) => api.post("/api/user/profile", data),
 };
 
+export const crawlApi = {
+  jasoseol: () => api.post("/api/crawl/jasoseol"),
+  inthiswork: () => api.post("/api/crawl/inthiswork"),
+  all: () => api.post("/api/crawl/all"),
+  status: () => api.get("/api/crawl/status"),
+};
+
 export const aiApi = {
   generateCoverLetter: (data) => api.post("/api/ai/generate-cover-letter", data),
   analyzeCompany: (data) => api.post("/api/ai/analyze-company", data),

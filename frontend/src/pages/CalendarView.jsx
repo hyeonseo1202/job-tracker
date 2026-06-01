@@ -3,11 +3,14 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import { useNavigate } from "react-router-dom";
-import { jobsApi } from "../api";
+import { jobsApi, crawlApi } from "../api";
+import { RefreshCw } from "lucide-react";
 
 export default function CalendarView() {
   const [events, setEvents] = useState([]);
   const [upcomingJobs, setUpcomingJobs] = useState([]);
+  const [crawling, setCrawling] = useState(null); // null | "jasoseol" | "inthiswork" | "all"
+  const [crawlMsg, setCrawlMsg] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -22,6 +25,44 @@ export default function CalendarView() {
       setUpcomingJobs(sorted);
     });
   }, []);
+
+  const handleCrawl = async (source) => {
+    setCrawling(source);
+    setCrawlMsg("");
+    try {
+      const fn = source === "jasoseol" ? crawlApi.jasoseol
+               : source === "inthiswork" ? crawlApi.inthiswork
+               : crawlApi.all;
+      await fn();
+      // 완료될 때까지 상태 폴링
+      const poll = setInterval(async () => {
+        const s = await crawlApi.status();
+        if (!s.data.running) {
+          clearInterval(poll);
+          setCrawling(null);
+          const r = s.data.last_result;
+          if (r?.error) {
+            setCrawlMsg(`오류: ${r.error}`);
+          } else {
+            setCrawlMsg(`완료! ${r?.added || 0}개 추가, ${r?.skipped || 0}개 중복 스킵`);
+          }
+          // 캘린더·목록 새로고침
+          jobsApi.calendar().then((res) => setEvents(res.data));
+          jobsApi.list().then((res) => {
+            const sorted = [...res.data]
+              .filter((j) => j.deadline)
+              .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
+              .slice(0, 5);
+            setUpcomingJobs(sorted);
+          });
+          setTimeout(() => setCrawlMsg(""), 5000);
+        }
+      }, 2000);
+    } catch (e) {
+      setCrawling(null);
+      setCrawlMsg("크롤링 오류: " + e.message);
+    }
+  };
 
   const daysUntil = (deadline) => {
     const diff = new Date(deadline) - new Date();
@@ -38,10 +79,42 @@ export default function CalendarView() {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a" }}>채용 캘린더</h2>
-        <p style={{ color: "#64748b", fontSize: 14, marginTop: 4 }}>마감일 기준으로 공고를 확인하세요</p>
+      <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+        <div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a" }}>채용 캘린더</h2>
+          <p style={{ color: "#64748b", fontSize: 14, marginTop: 4 }}>마감일 기준으로 공고를 확인하세요</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {crawlMsg && (
+            <span style={{ fontSize: 12, color: crawlMsg.includes("오류") ? "#ef4444" : "#16a34a", fontWeight: 600 }}>
+              {crawlMsg}
+            </span>
+          )}
+          {[
+            { key: "jasoseol", label: "자소설닷컴", color: "#6366f1" },
+            { key: "inthiswork", label: "인디스워크", color: "#0ea5e9" },
+            { key: "all", label: "전체 크롤링", color: "#059669" },
+          ].map(({ key, label, color }) => (
+            <button
+              key={key}
+              onClick={() => handleCrawl(key)}
+              disabled={!!crawling}
+              style={{
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "7px 13px", borderRadius: 8,
+                background: crawling === key ? color + "99" : color,
+                color: "white", border: "none",
+                cursor: crawling ? "not-allowed" : "pointer",
+                fontSize: 12, fontWeight: 600,
+              }}
+            >
+              <RefreshCw size={13} style={{ animation: crawling === key ? "spin 1s linear infinite" : "none" }} />
+              {crawling === key ? "수집 중..." : label}
+            </button>
+          ))}
+        </div>
       </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}>
         {/* 캘린더 */}
