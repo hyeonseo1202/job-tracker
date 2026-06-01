@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from typing import Optional
 import os
-import anthropic
+from openai import OpenAI
 
 from database import get_db
 from models import Job, UserProfile, Company, CoverLetter
@@ -25,11 +25,20 @@ class AnalyzeCompanyRequest(BaseModel):
     company_id: int
 
 
-def get_claude_client():
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+def get_openai_client():
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(500, "ANTHROPIC_API_KEY가 설정되지 않았습니다.")
-    return anthropic.Anthropic(api_key=api_key)
+        raise HTTPException(500, "OPENAI_API_KEY가 설정되지 않았습니다.")
+    return OpenAI(api_key=api_key)
+
+
+def _chat(client: OpenAI, prompt: str, max_tokens: int = 2000) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.choices[0].message.content
 
 
 @router.post("/generate-cover-letter")
@@ -96,13 +105,8 @@ async def generate_cover_letter(req: GenerateRequest, db: AsyncSession = Depends
 
 초안만 작성해주세요. 설명이나 주석 없이 자기소개서 본문만 출력해주세요."""
 
-    client = get_claude_client()
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    answer = message.content[0].text
+    client = get_openai_client()
+    answer = _chat(client, prompt, max_tokens=2000)
 
     # DB에 저장
     cl = CoverLetter(
@@ -127,7 +131,7 @@ async def analyze_company(req: AnalyzeCompanyRequest, db: AsyncSession = Depends
     if not company:
         raise HTTPException(404)
 
-    client = get_claude_client()
+    client = get_openai_client()
     prompt = f"""'{company.name}'({company.category or "기업"})의 채용 정보를 바탕으로 다음을 분석해주세요.
 
 1. **핵심 인재상**: 이 기업이 원하는 인재의 특성 3~5가지 (불릿 포인트)
@@ -137,12 +141,7 @@ async def analyze_company(req: AnalyzeCompanyRequest, db: AsyncSession = Depends
 
 마크다운 형식으로 각 섹션을 명확히 구분해서 작성해주세요."""
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    analysis = message.content[0].text
+    analysis = _chat(client, prompt, max_tokens=1500)
 
     # 결과를 DB에 저장
     company.talent_profile = analysis
@@ -178,7 +177,7 @@ async def recommend_jobs(company_id: int, db: AsyncSession = Depends(get_db)):
         for i, j in enumerate(jobs)
     ])
 
-    client = get_claude_client()
+    client = get_openai_client()
     prompt = f"""다음은 '{company.name}'의 채용 공고 목록입니다.
 
 {jobs_text}
@@ -193,14 +192,8 @@ async def recommend_jobs(company_id: int, db: AsyncSession = Depends(get_db)):
 
 마크다운으로 작성해주세요."""
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1200,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
     return {
-        "recommendation": message.content[0].text,
+        "recommendation": _chat(client, prompt, max_tokens=1200),
         "jobs": [{"id": j.id, "title": j.title, "department": j.department, "job_type": j.job_type} for j in jobs],
     }
 
