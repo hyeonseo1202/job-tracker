@@ -20,8 +20,14 @@ export default function Preferences() {
   const [newKeyword, setNewKeyword] = useState("");
   const [sites, setSites] = useState([]);
   const [newSite, setNewSite] = useState({ name: "", url: "", selector: "" });
-  const [saved, setSaved] = useState(false);
-  const [filterMsg, setFilterMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [filtering, setFiltering] = useState(false);
+  const [toast, setToast] = useState(null); // {msg, type: "success"|"error"}
+
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   useEffect(() => {
     preferencesApi.get().then((r) => setPrefs(r.data));
@@ -49,18 +55,35 @@ export default function Preferences() {
     setPrefs((p) => ({ ...p, keywords: p.keywords.filter((k) => k !== kw) }));
 
   const savePrefs = async () => {
-    const r = await preferencesApi.save(prefs);
-    setSaved(true);
-    const deleted = r.data?.deleted ?? 0;
-    if (deleted > 0) setFilterMsg(`설정 기준에 맞지 않는 공고 ${deleted}개가 캘린더에서 삭제됐습니다.`);
-    setTimeout(() => { setSaved(false); setFilterMsg(""); }, 4000);
+    setSaving(true);
+    try {
+      const r = await preferencesApi.save(prefs);
+      const deleted = r.data?.deleted ?? 0;
+      const msg = deleted > 0
+        ? `저장 완료! (기준 미달 공고 ${deleted}개 삭제됨)`
+        : "설정이 저장되었습니다.";
+      showToast(msg, "success");
+    } catch {
+      showToast("저장에 실패했습니다. 다시 시도해주세요.", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const applyFilterNow = async () => {
-    const r = await preferencesApi.applyFilter();
-    const deleted = r.data?.deleted ?? 0;
-    setFilterMsg(deleted > 0 ? `공고 ${deleted}개가 삭제됐습니다.` : "삭제할 공고가 없습니다.");
-    setTimeout(() => setFilterMsg(""), 4000);
+    setFiltering(true);
+    try {
+      const r = await preferencesApi.applyFilter();
+      const deleted = r.data?.deleted ?? 0;
+      showToast(
+        deleted > 0 ? `필터 적용 완료! 공고 ${deleted}개가 삭제됐습니다.` : "삭제할 공고가 없습니다.",
+        "success"
+      );
+    } catch {
+      showToast("필터 적용에 실패했습니다. 다시 시도해주세요.", "error");
+    } finally {
+      setFiltering(false);
+    }
   };
 
   const addSite = async () => {
@@ -99,43 +122,60 @@ export default function Preferences() {
 
   return (
     <div style={{ padding: 24, maxWidth: 700 }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes slideUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }`}</style>
+
+      {/* 토스트 알림 */}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)",
+          zIndex: 9999, animation: "slideUp 0.25s ease",
+          background: toast.type === "success" ? "#0f172a" : "#ef4444",
+          color: "white", borderRadius: 10, padding: "13px 22px",
+          fontSize: 14, fontWeight: 600,
+          boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+          display: "flex", alignItems: "center", gap: 8,
+          whiteSpace: "nowrap",
+        }}>
+          {toast.type === "success" ? "✅" : "❌"} {toast.msg}
+        </div>
+      )}
       <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
         <div>
           <h2 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a" }}>크롤링 설정</h2>
           <p style={{ color: "#64748b", fontSize: 14, marginTop: 4 }}>공고 필터 조건을 설정하세요 (매일 오전 8시 자동 크롤링)</p>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={applyFilterNow}
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "8px 16px", borderRadius: 8,
-                background: "white", color: "#ef4444",
-                border: "1px solid #fecaca", cursor: "pointer",
-                fontSize: 13, fontWeight: 600,
-              }}
-            >
-              <Filter size={14} />
-              지금 필터 적용
-            </button>
-            <button
-              onClick={savePrefs}
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "8px 16px", borderRadius: 8,
-                background: saved ? "#16a34a" : "#1e293b",
-                color: "white", border: "none", cursor: "pointer",
-                fontSize: 13, fontWeight: 600,
-              }}
-            >
-              <Save size={14} />
-              {saved ? "저장됨!" : "저장"}
-            </button>
-          </div>
-          {filterMsg && (
-            <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>{filterMsg}</span>
-          )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={applyFilterNow}
+            disabled={filtering || saving}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "8px 16px", borderRadius: 8,
+              background: filtering ? "#fef2f2" : "white",
+              color: filtering ? "#94a3b8" : "#ef4444",
+              border: "1px solid #fecaca",
+              cursor: filtering || saving ? "not-allowed" : "pointer",
+              fontSize: 13, fontWeight: 600,
+            }}
+          >
+            <Filter size={14} style={{ animation: filtering ? "spin 0.8s linear infinite" : "none" }} />
+            {filtering ? "적용 중..." : "지금 필터 적용"}
+          </button>
+          <button
+            onClick={savePrefs}
+            disabled={saving || filtering}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "8px 16px", borderRadius: 8,
+              background: saving ? "#475569" : "#1e293b",
+              color: "white", border: "none",
+              cursor: saving || filtering ? "not-allowed" : "pointer",
+              fontSize: 13, fontWeight: 600,
+            }}
+          >
+            <Save size={14} />
+            {saving ? "저장 중..." : "저장"}
+          </button>
         </div>
       </div>
 
