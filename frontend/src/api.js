@@ -18,6 +18,8 @@ export const companiesApi = {
   create: (data) => api.post("/api/companies/", data),
   update: (id, data) => api.put(`/api/companies/${id}`, data),
   news: (id) => api.get(`/api/companies/${id}/news`),
+  jobs: (id) => api.get(`/api/companies/${id}/jobs`),
+  coverLetters: (id) => api.get(`/api/companies/${id}/cover-letters`),
 };
 
 export const userApi = {
@@ -45,4 +47,5 @@ export const aiApi = {
   generateCoverLetter: (data) => api.post("/api/ai/generate-cover-letter", data),
   analyzeCompany: (data) => api.post("/api/ai/analyze-company", data),
   updateCoverLetter: (id, answer) => api.put(`/api/ai/cover-letters/${id}`, null, { params: { answer } }),
+  recommendJobs: (companyId) => api.get(`/api/ai/recommend-jobs/${companyId}`),
 };

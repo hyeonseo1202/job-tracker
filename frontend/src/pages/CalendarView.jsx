@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
@@ -9,65 +9,75 @@ import { RefreshCw } from "lucide-react";
 export default function CalendarView() {
   const [events, setEvents] = useState([]);
   const [upcomingJobs, setUpcomingJobs] = useState([]);
-  const [crawling, setCrawling] = useState(null); // null | "jasoseol" | "inthiswork" | "all"
+  const [crawling, setCrawling] = useState(false);
   const [crawlMsg, setCrawlMsg] = useState("");
+  const [progress, setProgress] = useState(null); // {source, step, count}
+  const [ctxMenu, setCtxMenu] = useState(null); // {x, y, jobId, jobUrl}
   const navigate = useNavigate();
+  const pollRef = useRef(null);
 
-  useEffect(() => {
-    jobsApi.calendar().then((res) => {
-      setEvents(res.data);
-    });
+  const loadData = useCallback(() => {
+    jobsApi.calendar().then((res) => setEvents(res.data));
     jobsApi.list().then((res) => {
+      const now = new Date();
       const sorted = [...res.data]
-        .filter((j) => j.deadline)
+        .filter((j) => j.deadline && new Date(j.deadline) > now) // 마감된 공고 제외
         .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
         .slice(0, 5);
       setUpcomingJobs(sorted);
     });
   }, []);
 
-  const handleCrawl = async (source) => {
-    setCrawling(source);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // 화면 클릭 시 컨텍스트 메뉴 닫기
+  useEffect(() => {
+    const close = () => setCtxMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, []);
+
+  const handleCrawl = async () => {
+    if (crawling) return;
+    setCrawling(true);
     setCrawlMsg("");
+    setProgress({ source: "", step: "시작 중...", count: 0 });
     try {
-      const fn = source === "jasoseol" ? crawlApi.jasoseol
-               : source === "inthiswork" ? crawlApi.inthiswork
-               : crawlApi.all;
-      await fn();
-      // 완료될 때까지 상태 폴링
-      const poll = setInterval(async () => {
+      await crawlApi.all();
+      pollRef.current = setInterval(async () => {
         const s = await crawlApi.status();
-        if (!s.data.running) {
-          clearInterval(poll);
-          setCrawling(null);
-          const r = s.data.last_result;
+        const data = s.data;
+        if (data.progress) setProgress(data.progress);
+        if (!data.running) {
+          clearInterval(pollRef.current);
+          setCrawling(false);
+          setProgress(null);
+          const r = data.last_result;
           if (r?.error) {
             setCrawlMsg(`오류: ${r.error}`);
           } else {
             setCrawlMsg(`완료! ${r?.added || 0}개 추가, ${r?.skipped || 0}개 중복 스킵`);
           }
-          // 캘린더·목록 새로고침
-          jobsApi.calendar().then((res) => setEvents(res.data));
-          jobsApi.list().then((res) => {
-            const sorted = [...res.data]
-              .filter((j) => j.deadline)
-              .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
-              .slice(0, 5);
-            setUpcomingJobs(sorted);
-          });
-          setTimeout(() => setCrawlMsg(""), 5000);
+          loadData();
+          setTimeout(() => setCrawlMsg(""), 6000);
         }
       }, 2000);
     } catch (e) {
-      setCrawling(null);
+      setCrawling(false);
+      setProgress(null);
       setCrawlMsg("크롤링 오류: " + e.message);
     }
   };
 
+  const handleDeleteJob = async (jobId) => {
+    if (!confirm("이 공고를 삭제하시겠습니까?")) return;
+    await jobsApi.delete(jobId);
+    loadData();
+  };
+
   const daysUntil = (deadline) => {
     const diff = new Date(deadline) - new Date();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days;
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
   };
 
   const urgencyColor = (days) => {
@@ -84,34 +94,39 @@ export default function CalendarView() {
           <h2 style={{ fontSize: 22, fontWeight: 700, color: "#0f172a" }}>채용 캘린더</h2>
           <p style={{ color: "#64748b", fontSize: 14, marginTop: 4 }}>마감일 기준으로 공고를 확인하세요</p>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          {/* 진행 상황 표시 */}
+          {crawling && progress && (
+            <div style={{
+              fontSize: 12, color: "#6366f1", fontWeight: 600,
+              background: "#eef2ff", padding: "4px 12px", borderRadius: 20,
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} />
+              {progress.source ? `${progress.source} ${progress.step}` : progress.step}
+              {progress.count > 0 && ` (${progress.count}개 수집)`}
+            </div>
+          )}
           {crawlMsg && (
             <span style={{ fontSize: 12, color: crawlMsg.includes("오류") ? "#ef4444" : "#16a34a", fontWeight: 600 }}>
               {crawlMsg}
             </span>
           )}
-          {[
-            { key: "jasoseol", label: "자소설닷컴", color: "#6366f1" },
-            { key: "inthiswork", label: "인디스워크", color: "#0ea5e9" },
-            { key: "all", label: "전체 크롤링", color: "#059669" },
-          ].map(({ key, label, color }) => (
-            <button
-              key={key}
-              onClick={() => handleCrawl(key)}
-              disabled={!!crawling}
-              style={{
-                display: "flex", alignItems: "center", gap: 5,
-                padding: "7px 13px", borderRadius: 8,
-                background: crawling === key ? color + "99" : color,
-                color: "white", border: "none",
-                cursor: crawling ? "not-allowed" : "pointer",
-                fontSize: 12, fontWeight: 600,
-              }}
-            >
-              <RefreshCw size={13} style={{ animation: crawling === key ? "spin 1s linear infinite" : "none" }} />
-              {crawling === key ? "수집 중..." : label}
-            </button>
-          ))}
+          <button
+            onClick={handleCrawl}
+            disabled={crawling}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "8px 16px", borderRadius: 8,
+              background: crawling ? "#6366f199" : "#6366f1",
+              color: "white", border: "none",
+              cursor: crawling ? "not-allowed" : "pointer",
+              fontSize: 13, fontWeight: 600,
+            }}
+          >
+            <RefreshCw size={13} style={{ animation: crawling ? "spin 1s linear infinite" : "none" }} />
+            {crawling ? "크롤링 중..." : "전체 크롤링"}
+          </button>
         </div>
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
@@ -125,6 +140,17 @@ export default function CalendarView() {
             locale="ko"
             events={events}
             eventClick={(info) => navigate(`/jobs/${info.event.id}`)}
+            eventDidMount={(info) => {
+              info.el.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+                setCtxMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  jobId: info.event.id,
+                  jobUrl: info.event.extendedProps?.url,
+                });
+              });
+            }}
             eventContent={(arg) => (
               <div style={{
                 padding: "2px 6px",
@@ -158,7 +184,7 @@ export default function CalendarView() {
               ⏰ 마감 임박
             </h3>
             {upcomingJobs.length === 0 ? (
-              <p style={{ color: "#94a3b8", fontSize: 13 }}>등록된 공고가 없습니다.</p>
+              <p style={{ color: "#94a3b8", fontSize: 13 }}>마감 예정 공고가 없습니다.</p>
             ) : (
               upcomingJobs.map((job) => {
                 const days = daysUntil(job.deadline);
@@ -234,6 +260,54 @@ export default function CalendarView() {
           </div>
         </div>
       </div>
+
+      {/* 우클릭 컨텍스트 메뉴 */}
+      {ctxMenu && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: ctxMenu.y,
+            left: ctxMenu.x,
+            background: "white",
+            borderRadius: 10,
+            boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+            border: "1px solid #e2e8f0",
+            zIndex: 9999,
+            overflow: "hidden",
+            minWidth: 160,
+          }}
+        >
+          <button
+            onClick={() => { navigate(`/jobs/${ctxMenu.jobId}`); setCtxMenu(null); }}
+            style={ctxBtnStyle}
+          >
+            🔍 자세히 보기
+          </button>
+          {ctxMenu.jobUrl && (
+            <button
+              onClick={() => { window.open(ctxMenu.jobUrl, "_blank"); setCtxMenu(null); }}
+              style={ctxBtnStyle}
+            >
+              🔗 공고 원문 열기
+            </button>
+          )}
+          <div style={{ height: 1, background: "#f1f5f9" }} />
+          <button
+            onClick={() => { handleDeleteJob(ctxMenu.jobId); setCtxMenu(null); }}
+            style={{ ...ctxBtnStyle, color: "#ef4444" }}
+          >
+            🗑 삭제
+          </button>
+        </div>
+      )}
     </div>
   );
 }
+
+const ctxBtnStyle = {
+  display: "block", width: "100%", padding: "10px 16px",
+  background: "none", border: "none", cursor: "pointer",
+  fontSize: 13, color: "#1e293b", textAlign: "left",
+  transition: "background 0.1s",
+};

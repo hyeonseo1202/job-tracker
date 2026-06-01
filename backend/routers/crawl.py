@@ -5,36 +5,17 @@ from datetime import datetime
 
 from database import get_db
 from models import Job, Company, CrawlPreferences
-from scrapers.crawlers import crawl_jasoseol, crawl_inthiswork, crawl_public_sites
+from scrapers.crawlers import crawl_jasoseol, crawl_inthiswork, crawl_public_sites, crawl_linkedin
 
 router = APIRouter(prefix="/api/crawl", tags=["crawl"])
 
 # 크롤링 상태 추적
-crawl_status = {"running": False, "last_run": None, "last_result": None}
-
-
-@router.post("/jasoseol")
-async def run_jasoseol_crawl(
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
-):
-    """자소설닷컴 공고 크롤링"""
-    if crawl_status["running"]:
-        return {"message": "이미 크롤링 중입니다."}
-    background_tasks.add_task(_do_crawl, "jasoseol", db)
-    return {"message": "자소설닷컴 크롤링 시작"}
-
-
-@router.post("/inthiswork")
-async def run_inthiswork_crawl(
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
-):
-    """INTHISWORK 공고 크롤링"""
-    if crawl_status["running"]:
-        return {"message": "이미 크롤링 중입니다."}
-    background_tasks.add_task(_do_crawl, "inthiswork", db)
-    return {"message": "INTHISWORK 크롤링 시작"}
+crawl_status = {
+    "running": False,
+    "last_run": None,
+    "last_result": None,
+    "progress": {"source": "", "step": "", "count": 0},
+}
 
 
 @router.post("/all")
@@ -42,9 +23,28 @@ async def run_all_crawl(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
-    """전체 사이트 크롤링"""
+    """전체 사이트 크롤링 (자소설닷컴 + INTHISWORK + LinkedIn + 공기업 자체 사이트)"""
+    if crawl_status["running"]:
+        return {"message": "이미 크롤링 중입니다."}
     background_tasks.add_task(_do_crawl, "all", db)
     return {"message": "전체 크롤링 시작 (백그라운드)"}
+
+
+# 하위 호환: 개별 소스 엔드포인트도 유지
+@router.post("/jasoseol")
+async def run_jasoseol_crawl(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    if crawl_status["running"]:
+        return {"message": "이미 크롤링 중입니다."}
+    background_tasks.add_task(_do_crawl, "all", db)
+    return {"message": "크롤링 시작"}
+
+
+@router.post("/inthiswork")
+async def run_inthiswork_crawl(background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    if crawl_status["running"]:
+        return {"message": "이미 크롤링 중입니다."}
+    background_tasks.add_task(_do_crawl, "all", db)
+    return {"message": "크롤링 시작"}
 
 
 @router.get("/status")
@@ -54,6 +54,7 @@ async def get_crawl_status():
 
 async def _do_crawl(source: str, db: AsyncSession):
     crawl_status["running"] = True
+    crawl_status["progress"] = {"source": "", "step": "준비 중...", "count": 0}
     added = 0
     skipped = 0
 
@@ -65,12 +66,32 @@ async def _do_crawl(source: str, db: AsyncSession):
         allowed_keywords = pref.keywords if pref and pref.keywords else []
 
         jobs_data = []
+
         if source in ("jasoseol", "all"):
-            jobs_data += await crawl_jasoseol(limit=100)
+            crawl_status["progress"] = {"source": "자소설닷컴", "step": "수집 중...", "count": 0}
+            new = await crawl_jasoseol(limit=100)
+            crawl_status["progress"]["count"] = len(new)
+            jobs_data += new
+
         if source in ("inthiswork", "all"):
-            jobs_data += await crawl_inthiswork(pages=3)
+            crawl_status["progress"] = {"source": "INTHISWORK", "step": "수집 중...", "count": 0}
+            new = await crawl_inthiswork(pages=3)
+            crawl_status["progress"]["count"] = len(new)
+            jobs_data += new
+
+        if source in ("linkedin", "all"):
+            crawl_status["progress"] = {"source": "LinkedIn", "step": "수집 중...", "count": 0}
+            new = await crawl_linkedin(limit=40)
+            crawl_status["progress"]["count"] = len(new)
+            jobs_data += new
+
         if source in ("public", "all"):
-            jobs_data += await crawl_public_sites(db)
+            crawl_status["progress"] = {"source": "공기업 사이트", "step": "수집 중...", "count": 0}
+            new = await crawl_public_sites(db)
+            crawl_status["progress"]["count"] = len(new)
+            jobs_data += new
+
+        crawl_status["progress"] = {"source": "", "step": "DB 저장 중...", "count": len(jobs_data)}
 
         for item in jobs_data:
             company_name = item.get("company_name", "").strip()

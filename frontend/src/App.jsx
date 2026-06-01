@@ -7,6 +7,7 @@ import UserProfile from "./pages/UserProfile";
 import Companies from "./pages/Companies";
 import Applications from "./pages/Applications";
 import Preferences from "./pages/Preferences";
+import CompanyDetail from "./pages/CompanyDetail";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="companies" element={<Companies />} />
           <Route path="applications" element={<Applications />} />
           <Route path="preferences" element={<Preferences />} />
+          <Route path="companies/:id" element={<CompanyDetail />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -235,6 +235,75 @@ def _infer_job_type(title: str) -> str:
 
 
 # ──────────────────────────────────────────
+# LinkedIn (Playwright)
+# ──────────────────────────────────────────
+
+async def crawl_linkedin(limit: int = 40) -> list[dict]:
+    """LinkedIn 공개 채용 공고 수집 (신입/인턴, 한국)"""
+    from playwright.async_api import async_playwright
+
+    jobs = []
+    search_url = (
+        "https://www.linkedin.com/jobs/search/"
+        "?keywords=%EC%8B%A0%EC%9E%85+%EC%9D%B8%ED%84%B4"
+        "&location=%EB%8C%80%ED%95%9C%EB%AF%BC%EA%B5%AD"
+        "&f_TPR=r604800&f_E=1%2C2"  # 1주 이내, entry level
+    )
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            locale="ko-KR",
+        )
+        page = await context.new_page()
+
+        try:
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
+            await page.wait_for_timeout(3000)
+
+            # 직무 카드 목록 수집
+            cards = await page.eval_on_selector_all(
+                ".job-search-card, .base-card",
+                """els => els.map(el => ({
+                    title: el.querySelector('.base-search-card__title, .job-search-card__title')?.innerText?.trim() || '',
+                    company: el.querySelector('.base-search-card__subtitle, .job-search-card__company-name')?.innerText?.trim() || '',
+                    location: el.querySelector('.job-search-card__location')?.innerText?.trim() || '',
+                    link: el.querySelector('a')?.href || '',
+                    listed: el.querySelector('time')?.getAttribute('datetime') || ''
+                }))"""
+            )
+
+            seen = set()
+            for card in cards[:limit]:
+                company_name = card.get("company", "").strip()
+                title = card.get("title", "").strip()
+                link = card.get("link", "").split("?")[0]
+
+                if not company_name or not title or link in seen:
+                    continue
+                seen.add(link)
+
+                jobs.append({
+                    "source": "linkedin",
+                    "company_name": company_name,
+                    "title": title,
+                    "url": link or search_url,
+                    "deadline": None,
+                    "location": card.get("location", ""),
+                    "job_type": _infer_job_type(title),
+                    "description": f"LinkedIn 공고 | {card.get('location', '')}",
+                    "cover_letter_questions": [],
+                })
+        except Exception:
+            pass
+        finally:
+            await browser.close()
+
+    return jobs
+
+
+# ──────────────────────────────────────────
 # 공기업 자체 채용 사이트 크롤러
 # ──────────────────────────────────────────
 
