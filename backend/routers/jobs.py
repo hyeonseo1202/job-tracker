@@ -178,5 +178,5 @@ def _job_to_dict(job: Job, detail: bool = False) -> dict:
 
 
 def _category_color(category: str) -> str:
-    colors = {"대기업": "#4f46e5", "공기업": "#059669", "중견기업": "#d97706"}
-    return colors.get(category, "#6b7280")
+    colors = {"대기업": "#a5b4fc", "공기업": "#6ee7b7", "중견기업": "#fcd34d"}
+    return colors.get(category, "#cbd5e1")

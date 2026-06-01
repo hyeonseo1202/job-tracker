@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from "react-router-dom";
-import { Calendar, Building2, User, Plus } from "lucide-react";
+import { Calendar, Building2, User, Plus, ClipboardList, Settings } from "lucide-react";
 
 export default function Layout() {
   return (
@@ -30,9 +30,17 @@ export default function Layout() {
             <Building2 size={18} />
             기업 관리
           </NavLink>
+          <NavLink to="/applications" style={navStyle}>
+            <ClipboardList size={18} />
+            내 지원 내역
+          </NavLink>
           <NavLink to="/profile" style={navStyle}>
             <User size={18} />
             내 정보
+          </NavLink>
+          <NavLink to="/preferences" style={navStyle}>
+            <Settings size={18} />
+            크롤링 설정
           </NavLink>
         </nav>
 

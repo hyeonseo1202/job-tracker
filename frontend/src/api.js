@@ -32,6 +32,15 @@ export const crawlApi = {
   status: () => api.get("/api/crawl/status"),
 };
 
+export const preferencesApi = {
+  get: () => api.get("/api/preferences/"),
+  save: (data) => api.post("/api/preferences/", data),
+  updateJobStatus: (id, data) => api.put(`/api/preferences/jobs/${id}/status`, data),
+  getCareerSites: () => api.get("/api/preferences/career-sites"),
+  addCareerSite: (name, url, selector) =>
+    api.post("/api/preferences/career-sites", null, { params: { name, url, selector } }),
+};
+
 export const aiApi = {
   generateCoverLetter: (data) => api.post("/api/ai/generate-cover-letter", data),
   analyzeCompany: (data) => api.post("/api/ai/analyze-company", data),

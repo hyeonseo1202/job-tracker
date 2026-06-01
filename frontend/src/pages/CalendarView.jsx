@@ -221,10 +221,10 @@ export default function CalendarView() {
           }}>
             <h3 style={{ fontSize: 13, fontWeight: 600, color: "#475569", marginBottom: 10 }}>범례</h3>
             {[
-              { color: "#4f46e5", label: "대기업" },
-              { color: "#059669", label: "공기업" },
-              { color: "#d97706", label: "중견기업" },
-              { color: "#6b7280", label: "기타" },
+              { color: "#a5b4fc", label: "대기업" },
+              { color: "#6ee7b7", label: "공기업" },
+              { color: "#fcd34d", label: "중견기업" },
+              { color: "#cbd5e1", label: "기타" },
             ].map((item) => (
               <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <div style={{ width: 12, height: 12, borderRadius: 3, background: item.color }} />

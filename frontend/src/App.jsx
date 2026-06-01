@@ -5,6 +5,8 @@ import JobDetail from "./pages/JobDetail";
 import AddJob from "./pages/AddJob";
 import UserProfile from "./pages/UserProfile";
 import Companies from "./pages/Companies";
+import Applications from "./pages/Applications";
+import Preferences from "./pages/Preferences";
 
 export default function App() {
   return (
@@ -16,6 +18,8 @@ export default function App() {
           <Route path="jobs/:id" element={<JobDetail />} />
           <Route path="profile" element={<UserProfile />} />
           <Route path="companies" element={<Companies />} />
+          <Route path="applications" element={<Applications />} />
+          <Route path="preferences" element={<Preferences />} />
         </Route>
       </Routes>
     </BrowserRouter>

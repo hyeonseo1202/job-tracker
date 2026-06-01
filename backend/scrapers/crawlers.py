@@ -1,7 +1,8 @@
 """
-자소설닷컴 / INTHISWORK 채용공고 크롤러
+자소설닷컴 / INTHISWORK / 공기업 자체 채용 크롤러
 - 자소설닷컴: Playwright DOM 파싱 (로그인 불필요 공개 영역)
 - INTHISWORK: WordPress REST API
+- 공기업 자체 사이트: DB에 등록된 PublicCareerSite 목록 기반
 """
 import httpx
 import re
@@ -231,6 +232,77 @@ def _infer_job_type(title: str) -> str:
     if any(k in lower for k in ["경력", "주니어"]):
         return "경력"
     return "신입/인턴"
+
+
+# ──────────────────────────────────────────
+# 공기업 자체 채용 사이트 크롤러
+# ──────────────────────────────────────────
+
+async def crawl_public_sites(db) -> list[dict]:
+    """DB에 등록된 PublicCareerSite 목록을 순서대로 크롤링"""
+    from sqlalchemy import select
+    from models import PublicCareerSite
+    from datetime import timezone
+
+    result = await db.execute(select(PublicCareerSite).where(PublicCareerSite.is_active == True))
+    sites = result.scalars().all()
+
+    jobs = []
+    for site in sites:
+        try:
+            new_jobs = await _crawl_site(site.name, site.url, site.selector or "")
+            jobs.extend(new_jobs)
+            site.last_crawled = datetime.utcnow()
+        except Exception:
+            pass
+    return jobs
+
+
+async def _crawl_site(company_name: str, url: str, selector: str) -> list[dict]:
+    """단일 채용 사이트 크롤링 (CSS 셀렉터 또는 범용 파싱)"""
+    async with httpx.AsyncClient(headers=HEADERS, timeout=20, follow_redirects=True) as client:
+        resp = await client.get(url)
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+    jobs = []
+    # 셀렉터 지정 시 해당 요소만 파싱
+    elements = soup.select(selector) if selector else []
+
+    # 셀렉터 없거나 결과 없으면 채용/공고/모집 포함 링크 전체 수집
+    if not elements:
+        elements = [
+            a for a in soup.find_all("a", href=True)
+            if any(kw in (a.get_text() + a.get("href", "")) for kw in
+                   ["채용", "공고", "모집", "recruit", "career", "job", "employ"])
+        ]
+
+    seen = set()
+    for el in elements[:30]:
+        text = el.get_text(separator=" ", strip=True)
+        if not text or len(text) < 4:
+            continue
+        href = el.get("href", "") if el.name == "a" else ""
+        if href and not href.startswith("http"):
+            from urllib.parse import urljoin
+            href = urljoin(url, href)
+        job_url = href or url
+        if job_url in seen:
+            continue
+        seen.add(job_url)
+
+        deadline = _extract_deadline_from_text(text)
+        jobs.append({
+            "source": "public",
+            "company_name": company_name,
+            "title": text[:100],
+            "url": job_url,
+            "deadline": deadline,
+            "job_type": _infer_job_type(text),
+            "description": text[:500],
+            "cover_letter_questions": [],
+        })
+
+    return jobs
 
 
 def _extract_deadline_from_text(text: str) -> Optional[datetime]:

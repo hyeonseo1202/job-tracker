@@ -4,8 +4,8 @@ from sqlalchemy import select
 from datetime import datetime
 
 from database import get_db
-from models import Job, Company
-from scrapers.crawlers import crawl_jasoseol, crawl_inthiswork
+from models import Job, Company, CrawlPreferences
+from scrapers.crawlers import crawl_jasoseol, crawl_inthiswork, crawl_public_sites
 
 router = APIRouter(prefix="/api/crawl", tags=["crawl"])
 
@@ -58,17 +58,39 @@ async def _do_crawl(source: str, db: AsyncSession):
     skipped = 0
 
     try:
+        # 선호도 로드
+        pref_res = await db.execute(select(CrawlPreferences).limit(1))
+        pref = pref_res.scalar_one_or_none()
+        allowed_job_types = pref.job_types if pref and pref.job_types else []
+        allowed_keywords = pref.keywords if pref and pref.keywords else []
+
         jobs_data = []
         if source in ("jasoseol", "all"):
             jobs_data += await crawl_jasoseol(limit=100)
         if source in ("inthiswork", "all"):
             jobs_data += await crawl_inthiswork(pages=3)
+        if source in ("public", "all"):
+            jobs_data += await crawl_public_sites(db)
 
         for item in jobs_data:
             company_name = item.get("company_name", "").strip()
             if not company_name:
                 skipped += 1
                 continue
+
+            # 직무 유형 필터 (선호도 설정 시 적용)
+            if allowed_job_types:
+                item_type = item.get("job_type", "")
+                if not any(t in item_type for t in allowed_job_types):
+                    skipped += 1
+                    continue
+
+            # 키워드 필터 (설정 시 적용)
+            if allowed_keywords:
+                text = (item.get("title", "") + " " + item.get("description", "")).lower()
+                if not any(kw.lower() in text for kw in allowed_keywords):
+                    skipped += 1
+                    continue
 
             # 기업 찾기 or 생성
             res = await db.execute(select(Company).where(Company.name == company_name))
@@ -95,6 +117,7 @@ async def _do_crawl(source: str, db: AsyncSession):
                 deadline=item.get("deadline"),
                 start_date=item.get("start_date"),
                 job_type=item.get("job_type", ""),
+                location=item.get("location", ""),
                 description=item.get("description", ""),
                 cover_letter_questions=item.get("cover_letter_questions", []),
                 is_active=True,
